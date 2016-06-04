@@ -9,8 +9,7 @@
 #export PATH
 shell_run_start=`date "+%Y-%m-%d %H:%M:%S"`   #shell run start time
 version="V2.3"
-
-str_dir_prog="/usr/local/ngrok"
+str_ngrok_dir="/usr/local/ngrok"
 str_dir_shell=$(cd `dirname $0`; pwd)
 str_dir_http_download_root="http://benevo.ngrok.cc"
 
@@ -134,12 +133,12 @@ function fun_set_ngrok_user_env(){
             echo "You will set multi-user!"
             str_single_user="n"
     esac
-    fun_set_str_ddns
+    fun_set_ngrok_domain
 }
-function fun_set_str_ddns(){
+function fun_set_ngrok_domain(){
     # Set ngrok domain
-    str_ddns=""
-    read -p "Please input server domain for Ngrok(e.g.:example.cn):" str_ddns
+    NGROK_DOMAIN=""
+    read -p "Please input domain for Ngrok(e.g.:example.cn):" NGROK_DOMAIN
     check_input
 }
 function fun_randstr(){
@@ -161,16 +160,11 @@ function fun_set_ngrok_pass(){
 }
 function check_input(){
     # check ngrok domain
-    if [ "$str_ddns" = "" ]; then
+    if [ "$NGROK_DOMAIN" = "" ]; then
         echo -e "Your input is empty,please input again..."
-        fun_set_str_ddns
+        fun_set_ngrok_domain
     else
-        if [ -s ${str_dir_prog}/${str_ddns}/bin/ngrok ] && [ -s /etc/init.d/ngrok ]; then
-            echo "Ngrok is installed!"
-            exit 1
-        fi
-
-        echo -e "Your domain: \033[41;37m "${str_ddns}" \033[0m."
+        echo -e "Your domain: \033[41;37m "${NGROK_DOMAIN}" \033[0m."
         fun_set_ngrok_pass
     fi
     # check ngrok pass
@@ -187,15 +181,19 @@ function check_input(){
 
 function pre_install(){
     echo "Install ngrok,please wait..."
-    echo "============== Downloading client =============="
-    [ ! -d ${str_dir_prog}/${str_ddns}/bin ] && mkdir -p ${str_dir_prog}/${str_ddns}/bin
-    cd ${str_dir_prog}/${str_ddns}
+    echo "============== Install packs =============="
+    if [ "${OS}" == 'RHEL' ] || [ "${OS}" == 'CentOS' ]; then
+        #yum -y update
+        yum -y install nano net-tools openssl-devel curl curl-devel psmisc wget
+    else
+        apt-get update -y
+        apt-get install -y wget build-essential mercurial nano curl psmisc openssl libcurl4-openssl-dev
+    fi
+    [ ! -d ${str_ngrok_dir}/bin/ ] && mkdir -p ${str_ngrok_dir}/bin/
+    cd ${str_ngrok_dir}
     
     # Download ngrok file
     
-    checkos
-    check_os_bit
-    check_osversion
     local str_ngrok_ver
     if [ "${Is_64bit}" == 'y' ] ; then
         str_ngrok_ver="amd64"
@@ -210,31 +208,51 @@ function pre_install(){
         str_ngrok_ver="windows_${str_ngrok_ver}.exe"
     fi
     
-    if [ ! -s ${str_dir_prog}/bin/ngrok ]; then
-        if ! wget ${str_dir_http_download_root}/deploy/${str_ddns}/${str_ngrok_ver}/client/ngrok -O ${str_dir_prog}/${str_ddns}/bin/ngrok; then
+    if [ ! -s ${str_ngrok_dir}/bin/ngrokd ]; then
+        if ! wget ${str_dir_http_download_root}/deploy/${NGROK_DOMAIN}/${str_ngrok_ver}/server/ngrokd -O ${str_ngrok_dir}/bin/ngrokd; then
             echo "Failed to download ngrokd file!"
+            exit 1
+        fi
+        
+        if ! wget ${str_dir_http_download_root}/ca/${NGROK_DOMAIN}/server.crt -O ${str_ngrok_dir}/server.crt; then
+            echo "Failed to download server.crt file!"
+            exit 1
+        fi
+        if ! wget ${str_dir_http_download_root}/ca/${NGROK_DOMAIN}/server.key -O ${str_ngrok_dir}/server.key; then
+            echo "Failed to download server.key file!"
             exit 1
         fi
     fi
     
-    if [ -s ${str_dir_prog}/${str_ddns}/bin/ngrok ]; then
-        [ ! -x ${str_dir_prog}/${str_ddns}/bin/ngrok ] && chmod 755 ${str_dir_prog}/${str_ddns}/bin/ngrok
-        clear
+    if [ -s ${str_ngrok_dir}/bin/ngrokd ]; then
+        [ ! -x ${str_ngrok_dir}/bin/ngrokd ] && chmod 755 ${str_ngrok_dir}/bin/ngrokd
+        cd ${str_ngrok_dir}
+        if [ ! -f "${str_ngrok_dir}/server.key" ]; then
+            openssl genrsa -out base.key 2048
+            openssl req -new -x509 -nodes -key base.key -days 10000 -subj "/CN=${NGROK_DOMAIN}" -out base.pem
+            openssl genrsa -out server.key 2048
+            openssl req -new -key server.key -subj "/CN=${NGROK_DOMAIN}" -out server.csr
+            openssl x509 -req -in server.csr -CA base.pem -CAkey base.key -CAcreateserial -days 10000 -out server.crt 
+        fi
         config_runshell_ngrok
+        clear
         fun_clang_cn
-        echo "Install Ngrok client for ddns ${str_ddns} completed! enjoy it."
+        echo "Install Ngrok completed! enjoy it."
         echo "========================================================================="
         echo "On key install Ngrok ${version} for Debian/Ubuntu/CentOS Linux Server"
         echo "========================================================================="
         echo ""
-        echo "For more information please visit http://benevo.cc/"
+        echo "For more information please visit http://clang.cn/"
         echo ""
-        echo -e "ngrok status manage: \033[45;37m/etc/init.d/ngrok\033[0m {\033[40;31mstart\033[0m|\033[40;32mstop\033[0m|\033[40;33mrestart\033[0m|\033[40;34mconfig\033[0m|\033[40;35madduser\033[0m|\033[40;36minfo\033[0m}|..."
-        echo -e "Your Domain: \033[32m\033[01m${str_ddns}\033[0m"
+        echo -e "ngrok status manage: \033[45;37m/etc/init.d/ngrokd\033[0m {\033[40;31mstart\033[0m|\033[40;32mstop\033[0m|\033[40;33mrestart\033[0m|\033[40;34mconfig\033[0m|\033[40;35madduser\033[0m|\033[40;36minfo\033[0m}|..."
+        echo -e "Your Domain: \033[32m\033[01m${NGROK_DOMAIN}\033[0m"
         echo -e "Ngrok password: \033[32m\033[01m${ngrok_pass}\033[0m"
-        echo -e "Config file:   \033[32m\033[01m${str_dir_prog}/${str_ddns}/.ngrok.conf\033[0m"
+        echo -e "http_port: \033[32m\033[01m80\033[0m"
+        echo -e "https_port: \033[32m\033[01m443\033[0m"
+        echo -e "remote_port: \033[32m\033[01m4443\033[0m"
+        echo -e "Config file:   \033[32m\033[01m${str_ngrok_dir}/.ngrok_config.sh\033[0m"
         echo ""
-        #/etc/init.d/ngrok start ${str_ddns}
+        /etc/init.d/ngrokd start
         echo "========================================================================="
         exit 0
     else
@@ -253,39 +271,58 @@ function pre_install(){
     echo -e "Shell run time is \033[32m \033[01m${hour_distance} hour ${min_distance} min ${min_remainder} sec\033[0m"
 }
 function config_runshell_ngrok(){
-cat > ${str_dir_prog}/${str_ddns}/.ngrok.conf <<EOF
-server_addr: "${str_ddns}:4443"
-trust_host_root_certs: false
-#auth_token: "85279ddea86ece34c473ed52d079fc77"
-tunnels:
-  test:
-   subdomain: "test" #定义服务器分配域名前缀，跟平台上的要一样
-   proto:
-    http: 19870 #映射端口，不加ip默认本机
-    https: 80
+    if [ "${str_single_user}" == 'y' ] ; then
+cat > ${str_ngrok_dir}/.ngrok_config.sh <<EOF
+#!/bin/bash
+# -------------config START-------------
+dns="${NGROK_DOMAIN}"
+pass="${ngrok_pass}"
+http_port=80
+https_port=443
+remote_port=4443
+srtCRT=server.crt
+strKey=server.key
+loglevel="INFO"
+SingleUser="y"
+# -------------config END-------------
 EOF
-    chmod 750 ${str_dir_prog}/${str_ddns}/.ngrok.conf
+    else
+cat > ${str_ngrok_dir}/.ngrok_config.sh <<EOF
+#!/bin/bash
+# -------------config START-------------
+dns="${NGROK_DOMAIN}"
+pass="${ngrok_pass}"
+http_port=80
+https_port=443
+remote_port=4443
+srtCRT=server.crt
+strKey=server.key
+loglevel="INFO"
+SingleUser="n"
+# -------------config END-------------
+EOF
+    fi
     
-    if ! wget --no-check-certificate ${str_dir_http_download_root}/ngrok.init.d -O /etc/init.d/ngrok; then
-        echo "Failed to download ngrok.init.d file!"
+    if ! wget --no-check-certificate ${str_dir_http_download_root}/ngrokd.init.d -O /etc/init.d/ngrokd; then
+        echo "Failed to download ngrokd.init.d file!"
         exit 1
     fi
-    [ ! -x ${str_dir_prog}/${str_ddns}/.ngrok.conf ] && chmod 500 ${str_dir_prog}/${str_ddns}/.ngrok.conf
-    [ ! -x /etc/init.d/ngrok ] && chmod 755 /etc/init.d/ngrok
+    [ ! -x ${str_ngrok_dir}/.ngrok_config.sh ] && chmod 500 ${str_ngrok_dir}/.ngrok_config.sh
+    [ ! -x /etc/init.d/ngrokd ] && chmod 755 /etc/init.d/ngrokd
     if [ "${OS}" == 'CentOS' ] || [ "${OS}" == 'RHEL' ]; then
-        if [ -s /etc/init.d/ngrok ]; then
-            chmod +x /etc/init.d/ngrok
-            chkconfig --add ngrok
+        if [ -s /etc/init.d/ngrokd ]; then
+            chmod +x /etc/init.d/ngrokd
+            chkconfig --add ngrokd
         fi
     else
-        if [ -s /etc/init.d/ngrok ]; then
-            chmod +x /etc/init.d/ngrok
+        if [ -s /etc/init.d/ngrokd ]; then
+            chmod +x /etc/init.d/ngrokd
             update-rc.d -f ngrokd defaults
             sed -i 's/#TMPTIME=.*/TMPTIME=-1/' /etc/default/rcS
             sed -i 's/TMPTIME=.*/TMPTIME=-1/' /etc/default/rcS
         fi
     fi
-    [ -s /etc/init.d/ngrok ] && ln -s /etc/init.d/ngrok /usr/bin/ngrok
+    [ -s /etc/init.d/ngrokd ] && ln -s /etc/init.d/ngrokd /usr/bin/ngrokd
 }
 
 function check_nano(){
@@ -345,19 +382,24 @@ function fun_install_ngrok(){
     check_os_bit
     disable_selinux
     
-    fun_set_str_ddns
+    
+    if [ -s ${str_ngrok_dir}/bin/ngrokd ] && [ -s /etc/init.d/ngrokd ]; then
+        echo "Ngrok is installed!"
+    else
+        fun_set_ngrok_user_env
+    fi
 }
 function fun_configure_ngrok(){
     check_nano
-    if [ -s ${str_dir_prog}/.ngrok_config.sh ]; then
-        nano ${str_dir_prog}/.ngrok_config.sh
+    if [ -s ${str_ngrok_dir}/.ngrok_config.sh ]; then
+        nano ${str_ngrok_dir}/.ngrok_config.sh
     else
         echo "Ngrok configuration file not found!"
     fi
 }
 function fun_uninstall_ngrok(){
     fun_clang_cn
-    if [ -s ${str_dir_prog}/bin/ngrokd ] && [ -s /etc/init.d/ngrokd ]; then
+    if [ -s ${str_ngrok_dir}/bin/ngrokd ] && [ -s /etc/init.d/ngrokd ]; then
         echo "============== Uninstall Ngrok =============="
         save_config="n"
         echo  -e "\033[33mDo you want to keep the configuration file?\033[0m"
@@ -386,11 +428,11 @@ function fun_uninstall_ngrok(){
         else
             update-rc.d -f ngrokd remove
         fi
-        rm -f /etc/init.d/ngrokd /usr/bin/ngrokd /var/run/ngrok_clang.pid ${str_dir_prog}/ngrok_update.log
+        rm -f /etc/init.d/ngrokd /usr/bin/ngrokd /var/run/ngrok_clang.pid ${str_ngrok_dir}/ngrok_update.log
         if [ "${save_config}" == 'n' ]; then
-            rm -fr ${str_dir_prog}
+            rm -fr ${str_ngrok_dir}
         else
-            rm -fr ${str_dir_prog}/bin/ ${str_dir_prog}/ngrok.log ${str_dir_prog}/rootCA.* ${str_dir_prog}/server.*
+            rm -fr ${str_ngrok_dir}/bin/ ${str_ngrok_dir}/ngrok.log ${str_ngrok_dir}/rootCA.* ${str_ngrok_dir}/server.*
         fi
         echo "Ngrok uninstall success!"
     else
@@ -401,7 +443,7 @@ function fun_uninstall_ngrok(){
 
 function fun_update_ngrok(){
     fun_clang_cn
-    if [ -s ${str_dir_prog}/bin/ngrokd ] && [ -s /etc/init.d/ngrokd ]; then
+    if [ -s ${str_ngrok_dir}/bin/ngrokd ] && [ -s /etc/init.d/ngrokd ]; then
         echo "============== Update Ngrok =============="
         checkos
         check_osversion
@@ -409,9 +451,9 @@ function fun_update_ngrok(){
         check_killall
         fun_load_config
         #killall ngrokd
-        [ ! -d ${str_dir_prog}/bin/ ] && mkdir -p ${str_dir_prog}/bin/
-        rm -f /usr/bin/ngrokd /var/run/ngrok_clang.pid ${str_dir_prog}/ngrok_uninstall.log
-        cd ${str_dir_prog}
+        [ ! -d ${str_ngrok_dir}/bin/ ] && mkdir -p ${str_ngrok_dir}/bin/
+        rm -f /usr/bin/ngrokd /var/run/ngrok_clang.pid ${str_ngrok_dir}/ngrok_uninstall.log
+        cd ${str_ngrok_dir}
         
         # Download ngrok file
         
@@ -428,27 +470,27 @@ function fun_update_ngrok(){
         else
             str_ngrok_ver="windows_${str_ngrok_ver}.exe"
         fi
-        if [ ! -s ${str_dir_prog}/bin/ngrokd ]; then
-            mv ${str_dir_prog}/bin/ngrokd ${str_dir_prog}/bin/ngrokd.bak
-            if ! wget --no-check-certificate ${str_dir_http_download_root}/deploy/${dns}/${str_ngrok_ver}/server/ngrokd -O ${str_dir_prog}/bin/ngrokd; then
+        if [ ! -s ${str_ngrok_dir}/bin/ngrokd ]; then
+            mv ${str_ngrok_dir}/bin/ngrokd ${str_ngrok_dir}/bin/ngrokd.bak
+            if ! wget --no-check-certificate ${str_dir_http_download_root}/deploy/${dns}/${str_ngrok_ver}/server/ngrokd -O ${str_ngrok_dir}/bin/ngrokd; then
                 echo "Failed to download ngrokd file!"
-                mv ${str_dir_prog}/bin/ngrokd.bak ${str_dir_prog}/bin/ngrokd
+                mv ${str_ngrok_dir}/bin/ngrokd.bak ${str_ngrok_dir}/bin/ngrokd
                 exit 1
             else
-                rm -f ${str_dir_prog}/bin/ngrokd.bak
+                rm -f ${str_ngrok_dir}/bin/ngrokd.bak
             fi
         fi
         
-        [ ! -x ${str_dir_prog}/bin/ngrokd ] && chmod 755 ${str_dir_prog}/bin/ngrokd
+        [ ! -x ${str_ngrok_dir}/bin/ngrokd ] && chmod 755 ${str_ngrok_dir}/bin/ngrokd
         
-        mv /etc/init.d/ngrokd ${str_dir_prog}/ngrokd.init.d
+        mv /etc/init.d/ngrokd ${str_ngrok_dir}/ngrokd.init.d
         if ! wget --no-check-certificate ${str_dir_http_download_root}/ngrokd.init.d -O /etc/init.d/ngrokd; then
             echo "Failed to download ngrokd.init.d file!"
-            mv ${str_dir_prog}/ngrokd.init.d /etc/init.d/ngrokd
+            mv ${str_ngrok_dir}/ngrokd.init.d /etc/init.d/ngrokd
             ln -s /etc/init.d/ngrokd /usr/bin/ngrokd
             exit 1
         else
-            rm -rf ${str_dir_prog}/ngrokd.init.d
+            rm -rf ${str_ngrok_dir}/ngrokd.init.d
         fi
         
         [ ! -x /etc/init.d/ngrokd ] && chmod 755 /etc/init.d/ngrokd
